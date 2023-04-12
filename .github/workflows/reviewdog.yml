@@ -1,0 +1,26 @@
+name: Reviewdog
+
+on: pull_request
+
+jobs:
+
+  golangci-lint:
+    name: GolangCI-Lint
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # required for new-from-rev option in .golangci.yml
+
+      - name: Run golangci-lint
+        uses: reviewdog/action-golangci-lint@v2
+        with:
+          go_version_file: go.mod
+          version: v1.51.1
+          github_token: ${{ secrets.github_token }}
+          golangci_lint_flags: "--timeout=10m"
+          reporter: github-pr-check
+          fail_on_error: true
+          filter_mode: nofilter

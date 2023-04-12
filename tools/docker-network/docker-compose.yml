@@ -1,0 +1,175 @@
+version: "3.9"
+# Create a custom build that can be re-used within Docker network
+x-build-goshimmer: &goshimmer_build
+  context: ../../
+  args:
+    DOWNLOAD_SNAPSHOT: 0
+services:
+  peer_master:
+    build: *goshimmer_build
+    stop_grace_period: 1m
+    command: >
+      ${DOCKER_AUTOPEERING_CONFIG}
+      ${COMMON_CONFIG}
+      --autoPeering.entryNodes=
+      --node.seed=base58:8q491c3YWjbPwLmF2WD95YmCgh61j2kenCKHfGfByoWi
+      --node.enablePlugins=${COMMON_ENABLED},WebAPISnapshot
+      --node.disablePlugins=${COMMON_DISABLED}
+      --blockIssuer.ignoreBootstrappedFlag=true
+      --dashboard.dev=false
+      --dashboard.devDashboardAddress=dashboard-dev-docker:9999
+    volumes:
+      - ./docker-network.snapshot:/app/snapshot.bin
+    #      - peerdb:/app/peerdb
+    ports:
+      - "8080:8080/tcp" # web API
+      - "8081:8081/tcp" # dashboard
+      - "8061:8061/tcp" # dags visualizer
+      - "6081:6061/tcp" # pprof
+    networks:
+      - goshimmer
+
+  peer_replica:
+    image: docker-network-peer_master:latest
+    stop_grace_period: 1m
+    command: >
+      ${DOCKER_AUTOPEERING_CONFIG}
+      ${COMMON_CONFIG}
+      --node.enablePlugins=${COMMON_ENABLED}
+      --node.disablePlugins=${COMMON_DISABLED}
+    deploy:
+      replicas: ${GOSHIMMER_PEER_REPLICAS:-1}
+    volumes:
+      - ./docker-network.snapshot:/app/snapshot.bin
+    networks:
+      - goshimmer
+
+  peer_master2:
+    image: docker-network-peer_master:latest
+    stop_grace_period: 1m
+    command: >
+      ${DOCKER_AUTOPEERING_CONFIG}
+      ${COMMON_CONFIG}
+      --node.seed=base58:4ata8GcTRMJ5sSv2jQJWmSYYTHct748p3tXmCFYm7wjA
+      --node.enablePlugins=${COMMON_ENABLED}
+      --node.disablePlugins=${COMMON_DISABLED}
+    volumes:
+      - ./docker-network.snapshot:/app/snapshot.bin
+    ports:
+      - "8070:8080/tcp" # web API
+      - "8071:8081/tcp" # dashboard
+      - "6071:6061/tcp" # pprof
+    networks:
+      - goshimmer
+
+  peer_nomana:
+    image: docker-network-peer_master:latest
+    stop_grace_period: 1m
+    command: >
+      ${DOCKER_AUTOPEERING_CONFIG}
+      ${COMMON_CONFIG}
+      --node.enablePlugins="webapitoolsendpoint",spammer,metrics
+      --node.disablePlugins=${COMMON_DISABLED}
+    volumes:
+      - ./docker-network.snapshot:/app/snapshot.bin
+    ports:
+      - "8040:8080/tcp" # web API
+      - "8041:8081/tcp" # dashboard
+      - "6041:6061/tcp" # pprof
+    networks:
+      - goshimmer
+    depends_on:
+      - peer_master
+      - faucet
+
+  peer_nomana2:
+    image: docker-network-peer_master:latest
+    stop_grace_period: 1m
+    command: >
+      ${DOCKER_AUTOPEERING_CONFIG}
+      ${COMMON_CONFIG}
+      --node.enablePlugins="webapitoolsendpoint",spammer,metrics
+      --node.disablePlugins=${COMMON_DISABLED}
+    volumes:
+      - ./docker-network.snapshot:/app/snapshot.bin
+    ports:
+      - "8030:8080/tcp" # web API
+      - "8031:8081/tcp" # dashboard
+      - "6031:6061/tcp" # pprof
+    networks:
+      - goshimmer
+    depends_on:
+      - peer_master
+      - faucet
+  faucet:
+    image: docker-network-peer_master:latest
+    stop_grace_period: 1m
+    command: >
+      ${DOCKER_AUTOPEERING_CONFIG}
+      ${COMMON_CONFIG}
+      --faucet.seed=7R1itJx5hVuo9w9hjg5cwKFmek4HMSoBDgJZN8hKGxih
+      --node.seed=base58:3YX6e7AL28hHihZewKdq6CMkEYVsTJBLgRiprUNiNq5E
+      --node.enablePlugins=${COMMON_ENABLED},faucet
+      --node.disablePlugins=${COMMON_DISABLED}
+    volumes:
+      - ./docker-network.snapshot:/app/snapshot.bin
+    ports:
+      - "8090:8080/tcp" # web API
+      - "8051:8061/tcp" # dags visualizer
+      - "8091:8081/tcp" # dashboard
+      - "6091:6061/tcp" # pprof
+    networks:
+      - goshimmer
+    depends_on:
+      - peer_master
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles:
+      - grafana
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/run/secrets/prometheus.yml
+    secrets:
+      - prometheus.yml
+    networks:
+      - goshimmer
+    depends_on:
+      - peer_master
+  grafana:
+    image: grafana/grafana:latest
+    profiles:
+      - grafana
+    environment:
+      # path to provisioning definitions can only be defined as
+      # environment variables for grafana within docker
+      - GF_PATHS_PROVISIONING=/var/lib/grafana/provisioning
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=false
+    networks:
+      - goshimmer
+    ports:
+      - "3000:3000"
+    user: "104"
+    volumes:
+      - grafana-data-volume:/var/lib/grafana
+      - ./grafana/provisioning:/var/lib/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+# Create our own network
+networks:
+  goshimmer:
+    driver: bridge
+# Named Docker volumes for data persistence
+# ./run.sh removes these on exit
+volumes:
+  db:
+  peerdb:
+  grafana-data-volume:
+# read only files to load in the containers that may be shared across containers
+secrets:
+  goshimmer.block.snapshot.bin:
+    file: ${SNAPSHOT_FILE:-./docker-network.snapshot}
+  prometheus.yml:
+    file: ${PROMETHEUS_CONFIG:-./prometheus.yml}

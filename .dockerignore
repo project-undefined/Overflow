@@ -1,0 +1,24 @@
+.git
+.gitignore
+.github/
+docs/
+.idea/
+go.work*
+
+LICENSE
+README.md
+CHANGELOG.md
+docker-compose.yml
+
+images/
+tools/
+
+# Database directory
+mainnetdb/
+db/
+retainer/
+
+plugins/dashboard/frontend/node_modules/
+plugins/dagsvisualizer/frontend/node_modules/
+documentation/
+images/
